@@ -4,10 +4,13 @@ import { Link, useNavigate } from "react-router-dom";
 import api from "../api/client";
 import NotificationPromptModal from "../components/NotificationPromptModal";
 import StatusPill from "../components/StatusPill";
+import BackButton from "../components/BackButton";
+import { useToast } from "../context/ToastContext";
 
 export default function IdsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [filters, setFilters] = useState({ status: "", severity: "", q: "" });
   const [form, setForm] = useState({
     projectId: "",
@@ -43,11 +46,24 @@ export default function IdsPage() {
     mutationFn: async (payload) => (await api.post(`/projects/${form.projectId}/ids`, payload)).data,
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["ids"] });
+      showToast("IDS raised successfully", "success");
       navigate(`/ids/${created.id}`);
+    },
+    onError: (error) => {
+      const message = error?.response?.data?.message || "Failed to raise IDS";
+      showToast(message, "error", 3000);
     }
   });
 
   const selectedProject = useMemo(() => projects.find((p) => p.id === Number(form.projectId)), [projects, form.projectId]);
+  const selectedAssignees = useMemo(
+    () => users.filter((user) => form.assigneeUserIds.includes(user.id)),
+    [users, form.assigneeUserIds]
+  );
+  const selectedLinkedTasks = useMemo(
+    () => projectTasks.filter((task) => form.linkedTaskIds.includes(task.id)),
+    [projectTasks, form.linkedTaskIds]
+  );
 
   if (idsError) {
     return (
@@ -59,8 +75,15 @@ export default function IdsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow p-6">
-        <h2 className="text-2xl font-semibold mb-4">Raise IDS</h2>
+      <BackButton />
+      <div className="bg-white rounded-xl shadow p-6 card-premium card-entrance">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-2xl font-semibold">Raise IDS</h2>
+            <p className="text-sm text-slate-500 mt-1">Capture issues/dependencies with proper ownership and traceable linked tasks.</p>
+          </div>
+          <StatusPill value="Escalation" type="ids-status" />
+        </div>
         <div className="grid md:grid-cols-3 gap-3">
           <select className="border rounded px-3 py-2" value={form.projectId} onChange={(e) => setForm((v) => ({ ...v, projectId: e.target.value, linkedTaskIds: [] }))}>
             <option value="">Select project</option>
@@ -77,10 +100,13 @@ export default function IdsPage() {
         </div>
         {selectedProject && (
           <div className="grid md:grid-cols-2 gap-3 mt-3">
-            <div className="border rounded p-2 max-h-40 overflow-auto">
-              <div className="text-sm font-medium mb-1">Assignees</div>
+            <div className="border rounded p-3 max-h-48 overflow-auto bg-slate-50/50">
+              <div className="text-sm font-medium mb-2 flex items-center justify-between">
+                <span>Assignees</span>
+                <span className="text-xs text-slate-500">{form.assigneeUserIds.length} selected</span>
+              </div>
               {users.map((user) => (
-                <label key={user.id} className="block text-sm">
+                <label key={user.id} className="block text-sm border rounded px-2 py-1.5 bg-white mb-1 hover:border-indigo-300 transition-colors">
                   <input
                     type="checkbox"
                     className="mr-2"
@@ -96,10 +122,13 @@ export default function IdsPage() {
                 </label>
               ))}
             </div>
-            <div className="border rounded p-2 max-h-40 overflow-auto">
-              <div className="text-sm font-medium mb-1">Linked Tasks</div>
+            <div className="border rounded p-3 max-h-48 overflow-auto bg-slate-50/50">
+              <div className="text-sm font-medium mb-2 flex items-center justify-between">
+                <span>Linked Tasks</span>
+                <span className="text-xs text-slate-500">{form.linkedTaskIds.length} linked</span>
+              </div>
               {projectTasks.map((task) => (
-                <label key={task.id} className="block text-sm">
+                <label key={task.id} className="block text-sm border rounded px-2 py-1.5 bg-white mb-1 hover:border-indigo-300 transition-colors">
                   <input
                     type="checkbox"
                     className="mr-2"
@@ -118,15 +147,37 @@ export default function IdsPage() {
           </div>
         )}
         <button
-          className="mt-3 bg-indigo-600 text-white rounded px-4 py-2"
+          className="mt-4 bg-indigo-600 text-white rounded px-4 py-2 font-medium"
           disabled={!form.projectId || !form.title || !form.description}
           onClick={() => setPromptOpen(true)}
         >
           Raise IDS
         </button>
+        {selectedProject && (
+          <div className="grid md:grid-cols-2 gap-3 mt-4">
+            <div className="border rounded-xl p-3 bg-slate-50/60">
+              <div className="text-sm font-medium mb-2">Selected Assignees</div>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedAssignees.map((user) => (
+                  <span key={user.id} className="status-pill status-pill-blue">{user.fullName}</span>
+                ))}
+                {!selectedAssignees.length && <span className="text-xs text-slate-500">No assignees selected.</span>}
+              </div>
+            </div>
+            <div className="border rounded-xl p-3 bg-slate-50/60">
+              <div className="text-sm font-medium mb-2">Selected Linked Tasks</div>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedLinkedTasks.map((task) => (
+                  <span key={task.id} className="status-pill status-pill-slate">{task.name}</span>
+                ))}
+                {!selectedLinkedTasks.length && <span className="text-xs text-slate-500">No tasks linked.</span>}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="bg-white rounded-xl shadow p-6">
+      <div className="bg-white rounded-xl shadow p-6 card-premium card-entrance">
         <h2 className="text-2xl font-semibold mb-4">IDS Records</h2>
         <div className="grid md:grid-cols-3 gap-2 mb-3">
           <input className="border rounded px-3 py-2" placeholder="Search title" value={filters.q} onChange={(e) => setFilters((v) => ({ ...v, q: e.target.value }))} />
@@ -141,7 +192,7 @@ export default function IdsPage() {
         </div>
         <div className="space-y-2">
           {idsRows.map((row) => (
-            <Link key={row.id} to={`/ids/${row.id}`} className="block border rounded p-3 hover:bg-slate-50">
+            <Link key={row.id} to={`/ids/${row.id}`} className="block border rounded p-3 card-premium hover:bg-slate-50">
               <div className="font-medium">{row.title}</div>
               <div className="text-sm text-slate-600 flex flex-wrap items-center gap-2">
                 <span>{row.Project?.clientName}</span>

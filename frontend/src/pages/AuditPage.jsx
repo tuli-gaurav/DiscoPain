@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "../api/client";
+import BackButton from "../components/BackButton";
 
 export default function AuditPage() {
   const [filters, setFilters] = useState({
@@ -24,6 +25,7 @@ export default function AuditPage() {
 
   return (
     <div className="space-y-4">
+      <BackButton />
       <div className="bg-white rounded-xl shadow p-6">
         <h2 className="text-2xl font-semibold mb-3">Audit Timeline</h2>
         <div className="grid md:grid-cols-4 gap-2">

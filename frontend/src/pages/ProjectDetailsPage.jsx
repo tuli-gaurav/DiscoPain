@@ -5,6 +5,8 @@ import { useParams } from "react-router-dom";
 import api from "../api/client";
 import NotificationPromptModal from "../components/NotificationPromptModal";
 import StatusPill from "../components/StatusPill";
+import BackButton from "../components/BackButton";
+import { useToast } from "../context/ToastContext";
 
 function HealthBadge({ health }) {
   return <StatusPill value={health} type="health" />;
@@ -25,6 +27,13 @@ function normalizeToArray(value) {
   return [];
 }
 
+function formatDateForInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
 export default function ProjectDetailsPage() {
   const { id } = useParams();
   const queryClient = useQueryClient();
@@ -41,6 +50,7 @@ export default function ProjectDetailsPage() {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [notifyModalOpen, setNotifyModalOpen] = useState(false);
   const [notifyCallback, setNotifyCallback] = useState(null);
+  const { showToast } = useToast();
 
   const { data: project, isLoading: projectLoading, error: projectError } = useQuery({
     queryKey: ["project", id],
@@ -120,6 +130,7 @@ export default function ProjectDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ["project", id] });
       queryClient.invalidateQueries({ queryKey: ["project-tasks", id] });
       queryClient.invalidateQueries({ queryKey: ["project-activity", id] });
+      showToast("Task updated", "success");
     }
   });
   const addDependency = useMutation({
@@ -149,6 +160,7 @@ export default function ProjectDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["task-notes", selectedTaskId] });
       queryClient.invalidateQueries({ queryKey: ["task-activity", selectedTaskId] });
+      showToast("Note updated", "success");
     }
   });
   const createReminder = useMutation({
@@ -160,7 +172,10 @@ export default function ProjectDetailsPage() {
   });
   const toggleReminder = useMutation({
     mutationFn: async ({ reminderId, isActive }) => (await api.patch(`/projects/${id}/reminders/${reminderId}`, { isActive })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project-reminders", id] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project-reminders", id] });
+      showToast("Reminder updated", "success");
+    }
   });
   const deleteReminder = useMutation({
     mutationFn: async (reminderId) => api.delete(`/projects/${id}/reminders/${reminderId}`),
@@ -200,11 +215,13 @@ export default function ProjectDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <BackButton />
       <div className="bg-white rounded-xl shadow p-6">
         <div className="flex justify-between items-start">
           <div>
             <h2 className="text-2xl font-semibold">{project.clientName}</h2>
             <p className="text-slate-500">Tier: {project.tier}</p>
+            <div className="mt-1"><StatusPill value={project.projectStatus || "Yet to Start"} type="project-status" /></div>
           </div>
           <HealthBadge health={project.health} />
         </div>
@@ -213,6 +230,24 @@ export default function ProjectDetailsPage() {
           <div><span className="text-slate-500">Regions:</span> {regions.join(", ") || "-"}</div>
           <div><span className="text-slate-500">Stakeholders:</span> {stakeholders.join(", ") || "-"}</div>
           <div><span className="text-slate-500">Contributors:</span> {contributingTeam.join(", ") || "-"}</div>
+          <div><span className="text-slate-500">Client type:</span> {project.clientType || "Existing Client"}</div>
+          <div>
+            <span className="text-slate-500">Cost involved:</span>{" "}
+            {project.isCostInvolved ? `Yes (${Number(project.costValue || project.costInvolved || 0).toLocaleString()})` : "No"}
+          </div>
+          <div>
+            <span className="text-slate-500">Cost approval:</span>{" "}
+            {!project.isCostInvolved
+              ? "-"
+              : project.costApproved
+                ? "Approved"
+                : <span className="text-red-600 font-semibold">Not Approved</span>}
+          </div>
+          {project.isCostInvolved && project.costApproved && (
+            <div className="md:col-span-3">
+              <span className="text-slate-500">Approval document:</span> {project.costApprovalDocument || "-"}
+            </div>
+          )}
         </div>
       </div>
 
@@ -235,7 +270,7 @@ export default function ProjectDetailsPage() {
               <div
                 key={task.id}
                 className={`border rounded p-3 cursor-pointer ${selectedTaskId === task.id ? "border-indigo-500 bg-indigo-50" : "hover:bg-slate-50"}`}
-                onClick={() => setSelectedTaskId(task.id)}
+                onClick={() => setSelectedTaskId((prev) => (prev === task.id ? null : task.id))}
               >
                 <div className="flex justify-between gap-2 items-center">
                   <div>
@@ -243,16 +278,32 @@ export default function ProjectDetailsPage() {
                     <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
                       <StatusPill value={task.status} type="task" />
                       <StatusPill value={task.priority} type="ids-severity" />
+                      <span className="text-xs">Assigned to: {task.responsibilityOwner || "Unassigned"}</span>
                     </div>
                     {task.blockedByDependency && <div className="text-xs text-red-600 mt-1">Blocked by incomplete dependencies</div>}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                     <select
                       className="border rounded px-2 py-1 text-sm"
                       value={task.status}
                       onChange={(e) => requestNotificationChoice((notifyPayload) => updateTask.mutate({ taskId: task.id, payload: { status: e.target.value, ...notifyPayload } }))}
                     >
                       {["Not Started", "In Progress", "Completed", "Blocked"].map((status) => <option key={status}>{status}</option>)}
+                    </select>
+                    <select
+                      className="border rounded px-2 py-1 text-sm"
+                      value={task.responsibilityOwner || ""}
+                      onChange={(e) =>
+                        requestNotificationChoice((notifyPayload) =>
+                          updateTask.mutate({
+                            taskId: task.id,
+                            payload: { responsibilityOwner: e.target.value || null, ...notifyPayload }
+                          })
+                        )
+                      }
+                    >
+                      <option value="">Assign to</option>
+                      {users.map((user) => <option key={user.id} value={user.fullName}>{user.fullName}</option>)}
                     </select>
                     <select
                       className="border rounded px-2 py-1 text-sm"
@@ -266,14 +317,31 @@ export default function ProjectDetailsPage() {
                       <option value="">Add dependency</option>
                       {allTasks.filter((candidate) => candidate.id !== task.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
                     </select>
-                    <button className="border rounded px-2 py-1 text-sm" onClick={() => setSelectedTaskId(task.id)}>Notes</button>
-                    <button className="border rounded px-2 py-1 text-sm text-red-600" onClick={() => deleteTask.mutate(task.id)}>Delete</button>
+                    <button type="button" className="border rounded px-2 py-1 text-sm" onClick={() => setSelectedTaskId((prev) => (prev === task.id ? null : task.id))}>Notes</button>
+                    <button type="button" className="border rounded px-2 py-1 text-sm text-red-600" onClick={() => deleteTask.mutate(task.id)}>Delete</button>
                   </div>
                 </div>
                 {selectedTaskId === task.id && (
                   <div className="mt-3 pt-3 border-t text-sm space-y-1">
-                    <div><span className="text-slate-500">Due date:</span> {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "-"}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500">Due date:</span>
+                      <input
+                        type="date"
+                        className="border rounded px-2 py-1 text-sm"
+                        defaultValue={formatDateForInput(task.dueDate)}
+                        onClick={(e) => e.stopPropagation()}
+                        onBlur={(e) => {
+                          const nextDueDate = e.target.value || null;
+                          const currentDueDate = formatDateForInput(task.dueDate) || null;
+                          if (nextDueDate === currentDueDate) return;
+                          requestNotificationChoice((notifyPayload) =>
+                            updateTask.mutate({ taskId: task.id, payload: { dueDate: nextDueDate, ...notifyPayload } })
+                          );
+                        }}
+                      />
+                    </div>
                     <div><span className="text-slate-500">Description:</span> {task.description || "-"}</div>
+                    <div><span className="text-slate-500">Assigned to:</span> {task.responsibilityOwner || "-"}</div>
                     <div><span className="text-slate-500">Dependencies:</span> {task.dependencies?.length || 0}</div>
                     <details className="mt-2">
                       <summary className="cursor-pointer text-sm font-medium text-indigo-700">Notes (collapse/expand)</summary>

@@ -12,10 +12,7 @@ import IdsPage from "./pages/IdsPage";
 import IdsDetailPage from "./pages/IdsDetailPage";
 import ReportsPage from "./pages/ReportsPage";
 import AuditPage from "./pages/AuditPage";
-
-function Placeholder({ title }) {
-  return <div className="bg-white rounded-lg p-6 shadow">{title} page scaffolded.</div>;
-}
+import UsersPage from "./pages/UsersPage";
 
 function Protected() {
   return (
@@ -30,7 +27,7 @@ function Protected() {
         <Route path="/ids" element={<IdsPage />} />
         <Route path="/ids/:id" element={<IdsDetailPage />} />
         <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/users" element={<Placeholder title="User Management" />} />
+        <Route path="/users" element={<UsersPage />} />
         <Route path="/audit" element={<AuditPage />} />
       </Routes>
     </Layout>

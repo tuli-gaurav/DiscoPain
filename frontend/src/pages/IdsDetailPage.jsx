@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import api from "../api/client";
 import NotificationPromptModal from "../components/NotificationPromptModal";
 import StatusPill from "../components/StatusPill";
+import BackButton from "../components/BackButton";
 
 export default function IdsDetailPage() {
   const { id } = useParams();
@@ -40,6 +41,7 @@ export default function IdsDetailPage() {
 
   return (
     <div className="space-y-6">
+      <BackButton />
       <div className="bg-white rounded-xl shadow p-6">
         <h2 className="text-2xl font-semibold">{row.title}</h2>
         <p className="text-slate-600 mt-1">{row.description}</p>

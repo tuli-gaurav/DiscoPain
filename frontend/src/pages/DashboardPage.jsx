@@ -14,6 +14,7 @@ import {
 } from "chart.js";
 import api from "../api/client";
 import StatusPill from "../components/StatusPill";
+import { getApiErrorMessage } from "../utils/apiErrorMessage";
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -26,7 +27,7 @@ export default function DashboardPage() {
   const tierOptions = ["All", "Tier 1", "Tier 2", "Tier 3"];
   const [dateRange, setDateRange] = useState({ from: "", to: "" });
   const [selectedSection, setSelectedSection] = useState("totalProjects");
-  const { data, dataUpdatedAt, refetch, isFetching } = useQuery({
+  const { data, dataUpdatedAt, refetch, isFetching, isError, error } = useQuery({
     queryKey: ["dashboard", tierFilter, dateRange],
     queryFn: async () => (
       await api.get("/dashboards/summary", {
@@ -38,7 +39,7 @@ export default function DashboardPage() {
       })
     ).data
   });
-  const { data: drilldown, isLoading: drilldownLoading } = useQuery({
+  const { data: drilldown, isLoading: drilldownLoading, isError: drilldownError, error: drilldownErr } = useQuery({
     queryKey: ["dashboard-drilldown", selectedSection, tierFilter, dateRange],
     queryFn: async () => (
       await api.get("/dashboards/drilldown", {
@@ -91,6 +92,15 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {isError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 card-premium">
+          <strong className="font-semibold">Dashboard could not load.</strong>{" "}
+          {getApiErrorMessage(error)}
+          <button type="button" className="ml-2 text-indigo-700 underline font-medium" onClick={() => refetch()}>
+            Retry
+          </button>
+        </div>
+      )}
       <div className="bg-white rounded-xl shadow p-5 card-premium card-entrance dashboard-hero">
         <div className="flex flex-wrap gap-4 items-start justify-between">
           <div>
@@ -225,7 +235,9 @@ export default function DashboardPage() {
           <h3 className="text-lg font-semibold">Drilldown: {selectedSection}</h3>
           <span className="text-xs text-slate-500">Click KPI cards/charts above to switch detail level.</span>
         </div>
-        {drilldownLoading ? (
+        {drilldownError ? (
+          <div className="text-sm text-red-700">{getApiErrorMessage(drilldownErr)}</div>
+        ) : drilldownLoading ? (
           <div className="text-sm text-slate-500">Loading drilldown...</div>
         ) : !drilldown?.rows?.length ? (
           <div className="text-sm text-slate-500">No data found for this selection.</div>

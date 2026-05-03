@@ -71,19 +71,126 @@ router.post("/auth/login", [body("email").isEmail(), body("password").isLength({
   const { email, password } = req.body;
   const user = await User.findOne({ where: { email }, include: Role });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) return res.status(401).json({ message: "Invalid credentials" });
+  if (!user.isActive) return res.status(403).json({ message: "User account is inactive" });
   const roles = user.Roles.map((r) => r.name);
   const token = jwt.sign({ sub: user.id, roles, email: user.email }, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
   return res.json({ token, user: { id: user.id, fullName: user.fullName, email: user.email, roles } });
 });
 
 router.get("/users", authRequired, async (_req, res) => {
-  const users = await User.findAll({
-    attributes: ["id", "fullName", "email"],
-    include: [{ model: Role, attributes: ["id", "name"] }],
-    order: [["fullName", "ASC"]]
-  });
-  res.json(users);
+  const {
+    q,
+    roleId,
+    isActive,
+    paged,
+    page = 1,
+    limit = 20,
+    sortBy = "fullName",
+    sortDir = "ASC"
+  } = _req.query;
+  const where = {};
+  if (q) {
+    where[Op.or] = [
+      { fullName: { [Op.like]: `%${q}%` } },
+      { email: { [Op.like]: `%${q}%` } }
+    ];
+  }
+  if (typeof isActive !== "undefined" && String(isActive).length) where.isActive = String(isActive) === "true";
+  const include = [{
+    model: Role,
+    attributes: ["id", "name"],
+    ...(roleId ? { where: { id: Number(roleId) } } : {})
+  }];
+  const sortFieldMap = { fullName: "fullName", email: "email", isActive: "isActive", createdAt: "createdAt" };
+  const normalizedSortBy = sortFieldMap[sortBy] || "fullName";
+  const normalizedSortDir = String(sortDir).toUpperCase() === "DESC" ? "DESC" : "ASC";
+  if (String(paged) === "true") {
+    const pageNo = Math.max(1, Number(page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(limit) || 20));
+    const { rows, count } = await User.findAndCountAll({
+      where,
+      include,
+      distinct: true,
+      offset: (pageNo - 1) * pageSize,
+      limit: pageSize,
+      order: [[normalizedSortBy, normalizedSortDir]]
+    });
+    return res.json({
+      rows,
+      total: count,
+      page: pageNo,
+      limit: pageSize,
+      totalPages: Math.max(1, Math.ceil(count / pageSize))
+    });
+  }
+  const users = await User.findAll({ where, include, order: [[normalizedSortBy, normalizedSortDir]] });
+  return res.json(users);
 });
+
+router.get("/roles", authRequired, permit("PMO Admin"), asyncHandler(async (_req, res) => {
+  const roles = await Role.findAll({ order: [["name", "ASC"]] });
+  res.json(roles);
+}));
+
+router.post("/users", authRequired, permit("PMO Admin"), asyncHandler(async (req, res) => {
+  const { fullName, email, password, roleIds = [] } = req.body;
+  if (!fullName || !String(fullName).trim()) return res.status(400).json({ message: "fullName is required" });
+  if (!email || !String(email).trim()) return res.status(400).json({ message: "email is required" });
+  if (!password || String(password).length < 6) return res.status(400).json({ message: "password must be at least 6 characters" });
+  const existing = await User.findOne({ where: { email } });
+  if (existing) return res.status(409).json({ message: "Email already exists" });
+  const user = await User.create({
+    fullName: String(fullName).trim(),
+    email: String(email).trim().toLowerCase(),
+    passwordHash: await bcrypt.hash(password, 10),
+    isActive: true
+  });
+  if (Array.isArray(roleIds) && roleIds.length) {
+    const roles = await Role.findAll({ where: { id: roleIds.map(Number) } });
+    await user.setRoles(roles);
+  }
+  await writeAudit({ userId: req.user.sub, entityType: "user", entityId: user.id, action: "created" });
+  const hydrated = await User.findByPk(user.id, { attributes: ["id", "fullName", "email", "isActive"], include: [{ model: Role, attributes: ["id", "name"] }] });
+  res.status(201).json(hydrated);
+}));
+
+router.patch("/users/:id", authRequired, permit("PMO Admin"), asyncHandler(async (req, res) => {
+  const user = await User.findByPk(req.params.id, { include: [{ model: Role, attributes: ["id", "name"] }] });
+  if (!user) return res.status(404).json({ message: "User not found" });
+  const { fullName, email, isActive, roleIds } = req.body;
+  if (typeof isActive !== "undefined" && Number(req.params.id) === Number(req.user.sub) && !isActive) {
+    return res.status(400).json({ message: "You cannot deactivate your own account" });
+  }
+  await user.update({
+    ...(typeof fullName !== "undefined" ? { fullName: String(fullName).trim() } : {}),
+    ...(typeof email !== "undefined" ? { email: String(email).trim().toLowerCase() } : {}),
+    ...(typeof isActive !== "undefined" ? { isActive: !!isActive } : {})
+  });
+  if (Array.isArray(roleIds)) {
+    const roles = await Role.findAll({ where: { id: roleIds.map(Number) } });
+    await user.setRoles(roles);
+  }
+  await writeAudit({ userId: req.user.sub, entityType: "user", entityId: user.id, action: "updated", metadata: req.body });
+  const hydrated = await User.findByPk(user.id, { attributes: ["id", "fullName", "email", "isActive"], include: [{ model: Role, attributes: ["id", "name"] }] });
+  res.json(hydrated);
+}));
+
+router.patch("/users/:id/reset-password", authRequired, permit("PMO Admin"), asyncHandler(async (req, res) => {
+  const user = await User.findByPk(req.params.id);
+  if (!user) return res.status(404).json({ message: "User not found" });
+  const { newPassword } = req.body;
+  if (!newPassword || String(newPassword).length < 6) {
+    return res.status(400).json({ message: "newPassword must be at least 6 characters" });
+  }
+  await user.update({ passwordHash: await bcrypt.hash(String(newPassword), 10) });
+  await writeAudit({
+    userId: req.user.sub,
+    entityType: "user",
+    entityId: user.id,
+    action: "password_reset"
+  });
+  return res.json({ message: "Password reset successfully" });
+}));
 
 router.get("/templates", authRequired, async (req, res) => {
   const { tier, isActive, q } = req.query;
@@ -239,7 +346,40 @@ router.patch("/templates/:id/tasks/reorder", authRequired, permit("PMO Admin"), 
 
 router.post("/projects", authRequired, permit("PMO Admin", "Project Owner"), asyncHandler(async (req, res) => {
   const { templateId, ...projectPayload } = req.body;
-  const project = await Project.create(projectPayload);
+  const normalizedPayload = { ...projectPayload };
+  const allowedProjectStatuses = ["Yet to Start", "In-Progress", "On Hold", "Cancelled"];
+  if (typeof normalizedPayload.projectStatus !== "undefined" && !allowedProjectStatuses.includes(normalizedPayload.projectStatus)) {
+    return res.status(400).json({ message: "projectStatus must be Yet to Start, In-Progress, On Hold, or Cancelled" });
+  }
+  if (typeof normalizedPayload.clientType !== "undefined") {
+    const allowedClientTypes = ["Existing Client", "New Client", "POC"];
+    if (!allowedClientTypes.includes(normalizedPayload.clientType)) {
+      return res.status(400).json({ message: "clientType must be Existing Client, New Client, or POC" });
+    }
+  }
+  if (typeof normalizedPayload.isCostInvolved !== "undefined") {
+    normalizedPayload.isCostInvolved = !!normalizedPayload.isCostInvolved;
+  }
+  if (normalizedPayload.isCostInvolved) {
+    if (typeof normalizedPayload.costValue === "undefined" || normalizedPayload.costValue === null || Number.isNaN(Number(normalizedPayload.costValue))) {
+      return res.status(400).json({ message: "costValue is required when cost is involved" });
+    }
+    normalizedPayload.costValue = Number(normalizedPayload.costValue);
+    normalizedPayload.costInvolved = normalizedPayload.costValue;
+    if (typeof normalizedPayload.costApproved === "undefined" || normalizedPayload.costApproved === null) {
+      return res.status(400).json({ message: "costApproved is required when cost is involved" });
+    }
+    normalizedPayload.costApproved = !!normalizedPayload.costApproved;
+    if (normalizedPayload.costApproved && !String(normalizedPayload.costApprovalDocument || "").trim()) {
+      return res.status(400).json({ message: "costApprovalDocument is required when cost is approved" });
+    }
+  } else {
+    normalizedPayload.costValue = null;
+    normalizedPayload.costApproved = null;
+    normalizedPayload.costApprovalDocument = null;
+    normalizedPayload.costInvolved = 0;
+  }
+  const project = await Project.create(normalizedPayload);
   const template = await Template.findByPk(templateId, { include: [{ model: TemplateTask, as: "tasks" }] });
   if (template?.tasks?.length) {
     await ProjectTask.bulkCreate(template.tasks.map((t) => ({
@@ -257,6 +397,12 @@ router.post("/projects", authRequired, permit("PMO Admin", "Project Owner"), asy
 router.patch("/projects/:id", authRequired, permit("PMO Admin", "Project Owner"), asyncHandler(async (req, res) => {
   const project = await Project.findByPk(req.params.id);
   if (!project) return res.status(404).json({ message: "Project not found" });
+  if (typeof req.body.projectStatus !== "undefined") {
+    const allowedProjectStatuses = ["Yet to Start", "In-Progress", "On Hold", "Cancelled"];
+    if (!allowedProjectStatuses.includes(req.body.projectStatus)) {
+      return res.status(400).json({ message: "projectStatus must be Yet to Start, In-Progress, On Hold, or Cancelled" });
+    }
+  }
   await project.update(req.body);
   await writeAudit({ userId: req.user.sub, entityType: "project", entityId: project.id, action: "updated", metadata: req.body });
   const notifyIds = await resolveNotificationUserIds(project.id, req.user.sub, req.body);
@@ -273,14 +419,86 @@ router.patch("/projects/:id", authRequired, permit("PMO Admin", "Project Owner")
 }));
 
 router.get("/projects", authRequired, async (req, res) => {
-  const { tier, health, q } = req.query;
+  const { tier, health, status, q, paged, page = 1, limit = 10, sortBy = "updatedAt", sortDir = "DESC" } = req.query;
   const where = {};
   if (tier) where.tier = tier;
   if (health) where.health = health;
+  if (status) where.projectStatus = status;
   if (q) where.clientName = { [Op.like]: `%${q}%` };
-  const projects = await Project.findAll({ where, order: [["updatedAt", "DESC"]] });
-  res.json(projects);
+  const sortFieldMap = {
+    clientName: "clientName",
+    tier: "tier",
+    health: "health",
+    projectStatus: "projectStatus",
+    updatedAt: "updatedAt",
+    createdAt: "createdAt"
+  };
+  const normalizedSortBy = sortFieldMap[sortBy] || "updatedAt";
+  const normalizedSortDir = String(sortDir).toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+  if (String(paged) === "true") {
+    const pageNo = Math.max(1, Number(page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(limit) || 10));
+    const { rows, count } = await Project.findAndCountAll({
+      where,
+      order: [[normalizedSortBy, normalizedSortDir]],
+      offset: (pageNo - 1) * pageSize,
+      limit: pageSize
+    });
+    return res.json({
+      rows,
+      total: count,
+      page: pageNo,
+      limit: pageSize,
+      totalPages: Math.max(1, Math.ceil(count / pageSize))
+    });
+  }
+
+  const projects = await Project.findAll({ where, order: [[normalizedSortBy, normalizedSortDir]] });
+  return res.json(projects);
 });
+
+router.get("/projects/analytics", authRequired, asyncHandler(async (_req, res) => {
+  const rows = await Project.findAll({
+    attributes: ["tier", "health", "projectStatus"],
+    raw: true
+  });
+  const total = rows.length;
+  const byTier = {};
+  const byHealth = {};
+  const byStatus = {};
+  for (const r of rows) {
+    const tier = r.tier || "Unknown";
+    const health = r.health || "Unknown";
+    const status = r.projectStatus || "Yet to Start";
+    byTier[tier] = (byTier[tier] || 0) + 1;
+    byHealth[health] = (byHealth[health] || 0) + 1;
+    byStatus[status] = (byStatus[status] || 0) + 1;
+  }
+  const green = byHealth.Green || 0;
+  const amber = byHealth.Amber || 0;
+  const red = byHealth.Red || 0;
+  const ragTotal = green + amber + red || 1;
+  res.json({
+    total,
+    byTier,
+    byHealth,
+    byStatus,
+    ragPct: {
+      green: Math.round((green / ragTotal) * 100),
+      amber: Math.round((amber / ragTotal) * 100),
+      red: Math.round((red / ragTotal) * 100)
+    }
+  });
+}));
+
+router.delete("/projects/:id", authRequired, permit("PMO Admin", "Project Owner"), asyncHandler(async (req, res) => {
+  const project = await Project.findByPk(req.params.id);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  await project.destroy();
+  await writeAudit({ userId: req.user.sub, entityType: "project", entityId: Number(req.params.id), action: "deleted" });
+  res.status(204).send();
+}));
 
 router.get("/projects/:id", authRequired, asyncHandler(async (req, res) => {
   const project = await Project.findByPk(req.params.id, {

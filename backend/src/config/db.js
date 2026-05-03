@@ -50,6 +50,22 @@ export const Project = sequelize.define("Project", {
   clientName: { type: DataTypes.STRING(180), allowNull: false, field: "client_name" },
   regions: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
   costInvolved: { type: DataTypes.DECIMAL(12, 2), field: "cost_involved", defaultValue: 0 },
+  isCostInvolved: { type: DataTypes.BOOLEAN, field: "is_cost_involved", defaultValue: false },
+  costValue: { type: DataTypes.DECIMAL(12, 2), field: "cost_value", allowNull: true },
+  costApproved: { type: DataTypes.BOOLEAN, field: "cost_approved", allowNull: true },
+  costApprovalDocument: { type: DataTypes.TEXT, field: "cost_approval_document", allowNull: true },
+  clientType: {
+    type: DataTypes.ENUM("Existing Client", "New Client", "POC"),
+    field: "client_type",
+    allowNull: false,
+    defaultValue: "Existing Client"
+  },
+  projectStatus: {
+    type: DataTypes.ENUM("Yet to Start", "In-Progress", "On Hold", "Cancelled"),
+    field: "project_status",
+    allowNull: false,
+    defaultValue: "Yet to Start"
+  },
   stakeholders: { type: DataTypes.JSON, allowNull: true, defaultValue: [] },
   pmoAssigned: { type: DataTypes.INTEGER, allowNull: true, field: "pmo_assigned" },
   projectOwner: { type: DataTypes.INTEGER, allowNull: true, field: "project_owner" },
@@ -57,7 +73,7 @@ export const Project = sequelize.define("Project", {
   tier: { type: DataTypes.ENUM("Tier 1", "Tier 2", "Tier 3"), allowNull: false },
   health: { type: DataTypes.ENUM("Green", "Amber", "Red"), defaultValue: "Green" },
   summary: { type: DataTypes.TEXT }
-}, { tableName: "projects", underscored: true });
+}, { tableName: "projects", underscored: true, paranoid: true });
 
 export const ProjectTask = sequelize.define("ProjectTask", {
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },

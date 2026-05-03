@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Bar } from "react-chartjs-2";
 import { BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from "chart.js";
 import api from "../api/client";
+import BackButton from "../components/BackButton";
+import { useToast } from "../context/ToastContext";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -11,6 +13,7 @@ function MetricIcon({ tone = "indigo", children }) {
 }
 
 export default function ReportsPage() {
+  const { showToast } = useToast();
   const [filters, setFilters] = useState({
     tier: "",
     region: "",
@@ -37,8 +40,29 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-4">
+      <BackButton />
       <div className="bg-white rounded-xl shadow p-6 card-premium card-entrance">
-        <h2 className="text-2xl font-semibold mb-3">Reports</h2>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="text-2xl font-semibold">Reports</h2>
+          <button
+            type="button"
+            className="border rounded px-3 py-1.5 text-sm"
+            onClick={() => {
+              setFilters({
+                tier: "",
+                region: "",
+                pmoAssigned: "",
+                projectOwner: "",
+                health: "",
+                from: "",
+                to: ""
+              });
+              showToast("Report filters reset", "info");
+            }}
+          >
+            Reset Filters
+          </button>
+        </div>
         <div className="grid md:grid-cols-4 gap-2">
           <select className="border rounded px-3 py-2" value={filters.tier} onChange={(e) => setFilters((v) => ({ ...v, tier: e.target.value }))}>
             <option value="">All tiers</option>

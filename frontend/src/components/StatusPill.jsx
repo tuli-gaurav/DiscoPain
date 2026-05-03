@@ -20,6 +20,11 @@ export default function StatusPill({ value, type = "default" }) {
     if (normalized.includes("closed") || normalized.includes("resolved")) cls = "status-pill status-pill-green";
     else if (normalized.includes("in progress")) cls = "status-pill status-pill-blue";
     else cls = "status-pill status-pill-amber";
+  } else if (type === "project-status") {
+    if (normalized.includes("in-progress")) cls = "status-pill status-pill-blue";
+    else if (normalized.includes("on hold")) cls = "status-pill status-pill-amber";
+    else if (normalized.includes("cancelled")) cls = "status-pill status-pill-red";
+    else cls = "status-pill status-pill-slate";
   }
 
   return <span className={cls}>{value || "-"}</span>;

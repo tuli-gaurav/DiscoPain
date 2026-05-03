@@ -3,11 +3,25 @@ import api from "../api/client";
 
 const AuthContext = createContext(null);
 
+function readStoredSession() {
+  const token = localStorage.getItem("token");
+  const raw = localStorage.getItem("user");
+  if (!token || !raw) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    return null;
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    const raw = localStorage.getItem("user");
-    return raw ? JSON.parse(raw) : null;
-  });
+  const [user, setUser] = useState(() => readStoredSession());
 
   const login = async (payload) => {
     const { data } = await api.post("/auth/login", payload);

@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../api/client";
 import StatusPill from "../components/StatusPill";
+import BackButton from "../components/BackButton";
+import { useToast } from "../context/ToastContext";
 
 const tiers = ["Tier 1", "Tier 2", "Tier 3"];
 const defaultTask = { name: "", description: "", responsibilityOwner: "", defaultStatus: "Not Started" };
@@ -12,6 +14,7 @@ function MetricIcon({ tone = "indigo", children }) {
 
 export default function TemplatesPage() {
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const [filters, setFilters] = useState({ tier: "", isActive: "true", q: "" });
   const [selectedId, setSelectedId] = useState(null);
   const [draftTask, setDraftTask] = useState(defaultTask);
@@ -36,17 +39,24 @@ export default function TemplatesPage() {
       setSelectedId(created.id);
       setNewTemplate({ name: "", tier: "Tier 1" });
       refresh();
+      showToast("Template created", "success");
     }
   });
 
   const updateTemplate = useMutation({
     mutationFn: async (payload) => (await api.patch(`/templates/${selected.id}`, payload)).data,
-    onSuccess: refresh
+    onSuccess: () => {
+      refresh();
+      showToast("Template saved", "success");
+    }
   });
 
   const deactivateTemplate = useMutation({
     mutationFn: async () => (await api.patch(`/templates/${selected.id}/deactivate`)).data,
-    onSuccess: refresh
+    onSuccess: () => {
+      refresh();
+      showToast("Template deactivated", "info");
+    }
   });
 
   const duplicateTemplate = useMutation({
@@ -54,6 +64,7 @@ export default function TemplatesPage() {
     onSuccess: (created) => {
       setSelectedId(created.id);
       refresh();
+      showToast("Template duplicated", "success");
     }
   });
 
@@ -62,23 +73,33 @@ export default function TemplatesPage() {
     onSuccess: () => {
       setDraftTask(defaultTask);
       refresh();
+      showToast("Template task added", "success");
     }
   });
 
   const updateTask = useMutation({
     mutationFn: async ({ taskId, payload }) => (await api.patch(`/templates/${selected.id}/tasks/${taskId}`, payload)).data,
-    onSuccess: refresh
+    onSuccess: () => {
+      refresh();
+      showToast("Template task updated", "success");
+    }
   });
 
   const deleteTask = useMutation({
     mutationFn: async (taskId) => api.delete(`/templates/${selected.id}/tasks/${taskId}`),
-    onSuccess: refresh
+    onSuccess: () => {
+      refresh();
+      showToast("Template task deleted", "info");
+    }
   });
 
   const reorderTasks = useMutation({
     mutationFn: async (tasks) =>
       (await api.patch(`/templates/${selected.id}/tasks/reorder`, { items: tasks.map((task, idx) => ({ taskId: task.id, orderNo: idx + 1 })) })).data,
-    onSuccess: refresh
+    onSuccess: () => {
+      refresh();
+      showToast("Task order updated", "success");
+    }
   });
 
   const moveTask = (taskId, direction) => {
@@ -109,7 +130,9 @@ export default function TemplatesPage() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="space-y-4">
+      <BackButton />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <section className="bg-white rounded-xl shadow p-4 lg:col-span-1 card-premium card-entrance">
         <h2 className="text-xl font-semibold mb-3 flex items-center gap-2">
           <MetricIcon tone="indigo">TP</MetricIcon>
@@ -266,6 +289,7 @@ export default function TemplatesPage() {
           </>
         )}
       </section>
+      </div>
     </div>
   );
 }
