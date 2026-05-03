@@ -1,12 +1,15 @@
 import { Sequelize, DataTypes } from "sequelize";
 import { env } from "./env.js";
 
-export const sequelize = new Sequelize(env.db.name, env.db.user, env.db.pass, {
-  host: env.db.host,
-  port: env.db.port,
+const { ssl, ...dbConn } = env.db;
+
+export const sequelize = new Sequelize(dbConn.name, dbConn.user, dbConn.pass, {
+  host: dbConn.host,
+  port: dbConn.port,
   dialect: "mysql",
   timezone: "+00:00",
-  logging: false
+  logging: false,
+  ...(ssl ? { dialectOptions: { ssl } } : {})
 });
 
 export const Role = sequelize.define("Role", {
